@@ -29,17 +29,15 @@ class qob extends REST_Controller {
 
     public function getRequestPickup_post(){
         $userid = $this->post('userid');
-        // $sql        = "SELECT * from qobpos.dbo.qob_order where userId = ? AND status = '01' ORDER BY update_time DESC";
-        $sql           = "SELECT a.pickup_number,COUNT(a.pickup_number) as jumlahOrder ,a.update_time as pickupTime, b.pickup_number, b.fastername,
-                            b.shipper_latlong, b.faster_latlong, b.update_time as realtimeTrack
-                            FROM qobpos.dbo.qob_order a 
-                            LEFT JOIN qobpos.dbo.history_pickup b ON a.pickup_number = b.pickup_number 
-                            WHERE a.userId = ? and a.pickup_number is not null
-                            GROUP BY a.pickup_number,b.pickup_number,a.update_time, b.fastername,b.shipper_latlong, b.faster_latlong, b.update_time";
-        $query      = $this->db->query($sql, array($userid));
-        // $query2      = $this->db->query($sql2, array($userid));
+        $sql = "SELECT a.pickup_number, count(b.externalId) as jumlahOrder, a.update_time, a.insert_time as pickupTime, a.fastername,
+                a.shipper_latlong, a.faster_latlong, a.status
+                FROM qobpos.dbo.history_pickup a 
+                inner join qobpos.dbo.qob_order b on a.pickup_number = b.pickup_number
+                WHERE b.userId = ?
+                GROUP BY a.pickup_number, a.update_time, a.insert_time, a.fastername, a.shipper_latlong, a.faster_latlong
+                ORDER BY a.insert_time DESC";
+        $query  = $this->db->query($sql, array($userid));
         if($query->num_rows() > 0 ){
-            // $Details = $query->result_array();
             $list    = $query->result_array();
             $this->response(array("result" => $list), 200);
         }else{
@@ -80,33 +78,13 @@ class qob extends REST_Controller {
         }
     }
 	
-    //push for internal
-	public function updateStatus_post() {
-		$pickup_number	= $this->post('pickup_number');
-		$curdate		= $this->getCurdate();
-		$status			= $this->post('status');
-		$updateData		= array(
-			//'pickup_number' => $pickup_number,
-			'status'		=> $status,
-			'update_time'	=> $curdate
-		);
-		
-		$this->db->update('qobpos.dbo.qob_order',$updateData);
-		$this->db->where('pickup_number',$pickup_number);
-		$jumlahupdate	= $this->db->affected_rows();
-		if($jumlahupdate > 0){
-			$this->response(array('updatedRows' => $jumlahupdate), 200);
-		}else{
-			$this->response(array('errors' => 'Gagal update / Pickup Number tidak ditemukan'), 400);
-		}
-	}
-	
 
     //if needs for push status from faster
 	public function updatePickup_post(){
 		//get pickupnumber
         $items 			= $this->post('externalId');
 		$pickup_number	= $this->post('pickup_number');
+        $shipper_latlong = $this->post('shipper_latlong');
 		$curdate		= $this->getCurdate();
         $updateData 	= array();
         for ($i=0; $i < count($items); $i++) { 
@@ -117,26 +95,23 @@ class qob extends REST_Controller {
 				'pickup_number'	=> $pickup_number
             );  
         }
-    	$shipper_latlong = $this->post('shipper_latlong');
-        $toDoInsert		 = array(
-        	'pickup_number' 	=> $pickup_number,
-        	'shipper_latlong'	=> $shipper_latlong
-        );
-
-        $this->db->insert('qobpos.dbo.history_pickup', $toDoInsert);
+    	
         $this->db->update_batch('qobpos.dbo.qob_order', $updateData, 'externalId');
-        if($this->db->affected_rows() > 0){
-            $this->response(200);
-        }else{
+        if ($this->db->affected_rows() > 0) {
+            $toDoInsert         = array(
+                'pickup_number'     => $pickup_number,
+                'shipper_latlong'   => $shipper_latlong,
+                'status' => '01'
+            );
+            $this->db->insert('qobpos.dbo.history_pickup', $toDoInsert);
+            if($this->db->affected_rows() > 0){
+                $this->response(200);
+            }else{//gagal insert
+                $this->response(array('errors' => array('global' => 'Failed to get pickup number')), 400);
+            }
+        }else{//gagal update
             $this->response(array('errors' => array('global' => 'Failed to get pickup number')), 400);
         }
-
-        //insert longlang shipper
-        // if($this->db->affected_rows() > 0){
-        //     $this->response(200);
-        // }else{
-        //     $this->response(array('errors' => array('global' => 'Failed to get your location, Please turn on GPS Location')), 400);
-        // }
     }
 
 
